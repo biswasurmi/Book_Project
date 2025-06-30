@@ -1,180 +1,188 @@
 
 
----
+````markdown
+# 📚 Book Project
 
-
-````md
-# 📚 Book Management REST API (Go + Chi + JWT + Basic Auth)
-
-A simple REST API for managing books with basic CRUD operations, written in Go using the Chi router.  
-Supports **Basic Authentication** and **JWT-based authorization**. Data is stored in-memory (non-persistent).
+A Go-based RESTful API for managing books, built with clean architecture principles and supporting CRUD operations with optional JWT and Basic Authentication.
 
 ---
 
-## 🚀 Features
+## 📖 Overview
 
-- Create, read, update, and delete books
-- Basic Auth for token retrieval and listing
-- JWT Auth for creating/updating/deleting
-- In-memory storage (for simplicity)
+The Book Project is a robust, modular API developed in Go for managing a collection of books. It provides endpoints for creating, reading, updating, and deleting books, with a clean architecture that separates concerns into domain, application, and infrastructure layers.
+
+Authentication is optional, using **JWT** for protected endpoints and **Basic Authentication** for listing books and token generation. The `--auth=false` flag disables all authentication, making it ideal for development and testing.
 
 ---
 
-## 📘 Book Model
+## ✨ Features
 
-```json
-{
-  "uuid": "auto-generated string",
-  "name": "string",
-  "authorList": ["string"],
-  "publishDate": "YYYY-MM-DD",
-  "isbn": "string"
-}
+### 🔧 CRUD Operations
+
+- `GET /api/v1/books`: List all books.
+- `POST /api/v1/books`: Create a new book.
+- `GET /api/v1/books/{uuid}`: Retrieve a book by UUID.
+- `PUT /api/v1/books/{uuid}`: Update a book by UUID.
+- `DELETE /api/v1/books/{uuid}`: Delete a book by UUID.
+
+### 🔐 Authentication
+
+- Optional **JWT authentication** for `POST`, `GET /{uuid}`, `PUT`, and `DELETE` endpoints.
+- **Basic Authentication** for:
+  - `GET /api/v1/books`
+  - `GET /api/v1/get-token`
+- Disable authentication with `--auth=false`.
+
+### 🧠 Architecture
+
+- 🗂️ In-Memory Storage (easily extensible to databases)
+- 🧱 Clean Architecture (handlers, services, repos, domain separated)
+- 🖥️ CLI Support with Cobra
+
+---
+
+## 🛠️ Prerequisites
+
+- **Go**: Version 1.18 or higher ([Install Go](https://go.dev/doc/install))
+- **Git**: For cloning the repository ([Install Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git))
+- **curl**: For testing API endpoints (optional)
+
+---
+
+## 🚀 Installation
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/biswasurmi/Book_Project.git
+cd Book_Project
 ````
 
----
-
-## ⚙️ Getting Started
-
-### ✅ Prerequisites
-
-* Go 1.22 or higher
-* Git (optional, for cloning)
-
-### ▶️ Run Server
+### 2. Install Dependencies
 
 ```bash
-go run main.go
+go mod tidy
 ```
 
-#### Command-line flags:
+**Dependencies include:**
 
-| Flag    | Default | Description                      |
-| ------- | ------- | -------------------------------- |
-| `-auth` | true    | Enable or disable authentication |
-| `-port` | 8080    | Port to run the server on        |
+* [`github.com/go-chi/chi/v5`](https://github.com/go-chi/chi)
+* [`github.com/go-chi/jwtauth/v5`](https://github.com/go-chi/jwtauth)
+* [`github.com/google/uuid`](https://github.com/google/uuid)
+* [`github.com/spf13/cobra`](https://github.com/spf13/cobra)
 
-**Example (disable authentication):**
+### 3. Run the Server
+
+* **With authentication:**
 
 ```bash
-go run main.go -auth=false
+go run main.go startProject --port=8080 --auth=true
+```
+
+* **Without authentication:**
+
+```bash
+go run main.go startProject --port=8080 --auth=false
 ```
 
 ---
 
-## 🔌 API Endpoints
+## 📡 API Usage
 
-| Method | Endpoint               | Description         | Auth Required     |
-| ------ | ---------------------- | ------------------- | ----------------- |
-| GET    | `/api/v1/get-token`    | Get JWT token       | Basic Auth        |
-| GET    | `/api/v1/books`        | List all books      | Basic or JWT Auth |
-| POST   | `/api/v1/books`        | Create a new book   | JWT               |
-| GET    | `/api/v1/books/{uuid}` | Get book by UUID    | JWT               |
-| PUT    | `/api/v1/books/{uuid}` | Update book by UUID | JWT               |
-| DELETE | `/api/v1/books/{uuid}` | Delete book by UUID | JWT               |
+### 🔐 With Authentication (`--auth=true`)
 
----
-
-## 💡 Usage Examples
-
-### 🔐 Get JWT Token (via Basic Auth)
+#### 1. Get a JWT Token
 
 ```bash
-curl -u AdminUser:AdminPassword http://localhost:8080/api/v1/get-token
+curl -u admin:admin123 http://localhost:8080/api/v1/get-token
 ```
 
 **Response:**
 
 ```json
-{
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
+{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}
 ```
 
----
-
-### 📖 List All Books
-
-#### Using Basic Auth:
-
-```bash
-curl -u AdminUser:AdminPassword http://localhost:8080/api/v1/books
-```
-
-#### Or using JWT:
-
-```bash
-curl -H "Authorization: Bearer <TOKEN>" http://localhost:8080/api/v1/books
-```
-
----
-
-### ➕ Create a Book (JWT Required)
+#### 2. Create a Book
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/books \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Go Programming",
-    "authorList": ["Alan A. A."],
-    "publishDate": "2023-01-01",
-    "isbn": "123-4567890123"
-  }'
+-H "Authorization: Bearer <your-jwt-token>" \
+-H "Content-Type: application/json" \
+-d '{"name":"Test Book","authorList":["Author One"],"publishDate":"2023-01-01","isbn":"1234567890"}'
 ```
 
-**Response:**
-
-```json
-{
-  "uuid": "generated-uuid",
-  "name": "Go Programming",
-  "authorList": ["Alan A. A."],
-  "publishDate": "2023-01-01",
-  "isbn": "123-4567890123"
-}
-```
-
----
-
-### 🔍 Get Book by UUID (JWT Required)
+#### 3. List Books
 
 ```bash
-curl -H "Authorization: Bearer <TOKEN>" http://localhost:8080/api/v1/books/<uuid>
+curl -u admin:admin123 http://localhost:8080/api/v1/books
 ```
 
----
+#### 4. Get a Book
 
-### ✏️ Update a Book (JWT Required)
+```bash
+curl -H "Authorization: Bearer <your-jwt-token>" \
+http://localhost:8080/api/v1/books/<uuid>
+```
+
+#### 5. Update a Book
 
 ```bash
 curl -X PUT http://localhost:8080/api/v1/books/<uuid> \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Updated Book",
-    "authorList": ["New Author"],
-    "publishDate": "2025-06-01",
-    "isbn": "999-9999999999"
-  }'
+-H "Authorization: Bearer <your-jwt-token>" \
+-H "Content-Type: application/json" \
+-d '{"name":"Updated Book","authorList":["Author Two"],"publishDate":"2024-01-01","isbn":"0987654321"}'
 ```
 
----
-
-### ❌ Delete a Book (JWT Required)
+#### 6. Delete a Book
 
 ```bash
 curl -X DELETE http://localhost:8080/api/v1/books/<uuid> \
-  -H "Authorization: Bearer <TOKEN>"
+-H "Authorization: Bearer <your-jwt-token>"
 ```
 
 ---
 
-## 📝 Notes
+### 🔓 Without Authentication (`--auth=false`)
 
-* All book data is stored in memory and **will be lost on server restart**.
-* The JWT secret is hardcoded for demo purposes. Use environment variables for production.
-* All requests are logged using Chi's middleware.
+#### 1. Get a Token
 
+```bash
+curl http://localhost:8080/api/v1/get-token
 ```
 
+#### 2. Create a Book
+
+```bash
+curl -X POST http://localhost:8080/api/v1/books \
+-H "Content-Type: application/json" \
+-d '{"name":"Test Book","authorList":["Author One"],"publishDate":"2023-01-01","isbn":"1234567890"}'
+```
+
+#### 3. List, Get, Update, Delete
+
+Use the same commands as above, but omit the `Authorization` header and replace `<uuid>` with a valid UUID.
+
+---
+
+## 📂 Project Structure
+
+```
+Book_Project/
+├── api/
+│   ├── handler/         # HTTP handlers and routes
+│   ├── middleware/      # Authentication middleware (JWT, Basic Auth)
+├── cmd/                 # CLI commands using Cobra
+├── domain/
+│   ├── entity/          # Book entity definition
+│   ├── repository/      # Repository interfaces
+├── infrastructure/
+│   ├── persistance/
+│   │   ├── inmemory/    # In-memory repository implementation
+├── service/             # Business logic for book operations
+├── main.go              # Application entry point
+├── go.mod               # Go module dependencies
+├── go.sum               # Dependency checksums
+├── LICENSE              # MIT License
+├── README.md            # Project documentation
+```
