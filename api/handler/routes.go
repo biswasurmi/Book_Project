@@ -36,7 +36,8 @@ func (s *Server) MountRoutes() {
 
 	s.Router.Group(func(r chi.Router) {
 		if s.AuthEnabled {
-			r.Use(middleware.JWTAuth(s.TokenAuth))
+			r.Use(jwtauth.Verifier(s.TokenAuth))            
+			r.Use(jwtauth.Authenticator(s.TokenAuth))       
 		}
 		r.Post("/api/v1/books", s.BookHandler.CreateBook)
 		r.Get("/api/v1/books/{uuid}", s.BookHandler.GetBook)
