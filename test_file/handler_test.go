@@ -15,6 +15,16 @@ import (
 	"github.com/go-chi/jwtauth/v5"
 )
 
+func BasicAuthHeader(username, password string) string {
+	auth := username + ":" + password
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+}
+
+func GenerateJWTToken(tokenAuth *jwtauth.JWTAuth) string {
+	_, tokenString, _ := tokenAuth.Encode(map[string]interface{}{"user_id": "test-user"})
+	return "Bearer " + tokenString
+}
+
 func Test_Get_Token(t *testing.T) {
 	repo := inmemory.NewBookRepo()
 	svc := service.NewBookService(repo)
@@ -64,17 +74,6 @@ func Test_Get_Token(t *testing.T) {
 		checkResponseCode(t, i.expectedStatusCode, response.Code)
 	}
 }
-
-func BasicAuthHeader(username, password string) string {
-	auth := username + ":" + password
-	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
-}
-
-func GenerateJWTToken(tokenAuth *jwtauth.JWTAuth) string {
-	_, tokenString, _ := tokenAuth.Encode(map[string]interface{}{"user_id": "test-user"})
-	return "Bearer " + tokenString
-}
-
 func Test_AllBookList(t *testing.T) {
 	repo := inmemory.NewBookRepo()
 	svc := service.NewBookService(repo)
