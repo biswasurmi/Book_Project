@@ -134,21 +134,32 @@ curl -X POST http://localhost:8080/api/v1/books \
 ### 🧱 Build Image
 
 ```bash
-docker build -t book-project-api:latest .
+docker build -t book_project .
 ```
 
 ### 🚀 Run Container
 
 ```bash
-docker run -p 8080:8080 book-project-api:latest
+docker run -d -p 8080:8080 book_project
 ```
 
 Without auth:
 
 ```bash
-docker run -p 8080:8080 book-project-api:latest --auth=false
+docker run -d -p 8080:8080 book_project --auth=false
 ```
 
+### 🧱 Tag Image in docker hub
+
+```bash
+docker tag book_project urmibiswas/book_project:v2
+```
+
+### 🧱 Push Image in docker hub
+
+```bash
+docker push urmibiswas/book_project:v2
+```
 ---
 
 ## 📁 Project Structure
