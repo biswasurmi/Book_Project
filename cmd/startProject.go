@@ -1,10 +1,8 @@
 package cmd
 
 import (
-	"fmt"
 	"log"
 	"net/http"
-
 	"github.com/biswasurmi/book-cli/api/handler"
 	"github.com/biswasurmi/book-cli/infrastructure/persistance/inmemory"
 	"github.com/biswasurmi/book-cli/service"
@@ -21,17 +19,21 @@ var startProject = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		log.Println("Starting Book Server on port", port)
 
-		bookRepo := inmemory.NewBookRepo()
-		bookService := service.NewBookService(bookRepo)
-		bookHandler := handler.NewBookHandler(bookService)
+		repos := inmemory.GetRepositories()
+		services := service.GetServices(repos)
 		tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
+		h := &handler.Handler{ 
+			BookHandler: handler.NewBookHandler(services.BookService),
+			UserHandler: handler.NewUserHandler(services.UserService, tokenAuth),
+		}
 
-		server := handler.CreateNewServer(bookHandler, auth, tokenAuth)
+		server := handler.CreateNewServer(h, services, auth, tokenAuth) 
 		server.MountRoutes()
 
 		addr := ":" + port
+		log.Printf("Server listening on %s", addr)
 		if err := http.ListenAndServe(addr, server.Router); err != nil {
-			fmt.Printf("Server error: %v\n", err)
+			log.Fatalf("Server error: %v", err)
 		}
 	},
 }

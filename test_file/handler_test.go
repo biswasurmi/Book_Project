@@ -7,31 +7,44 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/biswasurmi/book-cli/api/handler"
 	"github.com/biswasurmi/book-cli/domain/entity"
+	"github.com/biswasurmi/book-cli/domain/repository"
 	"github.com/biswasurmi/book-cli/infrastructure/persistance/inmemory"
 	"github.com/biswasurmi/book-cli/service"
 	"github.com/go-chi/jwtauth/v5"
 )
 
-func BasicAuthHeader(username, password string) string {
-	auth := username + ":" + password
+func BasicAuthHeader(email, password string) string {
+	auth := email + ":" + password
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-func GenerateJWTToken(tokenAuth *jwtauth.JWTAuth) string {
-	_, tokenString, _ := tokenAuth.Encode(map[string]interface{}{"user_id": "test-user"})
+func GenerateJWTToken(tokenAuth *jwtauth.JWTAuth, userID int64) string {
+	_, tokenString, _ := tokenAuth.Encode(map[string]interface{}{
+		"user_id": userID,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	})
 	return "Bearer " + tokenString
 }
 
-func Test_Get_Token(t *testing.T) {
-	repo := inmemory.NewBookRepo()
-	svc := service.NewBookService(repo)
-	bookHandler := handler.NewBookHandler(svc)
-	tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-	s := handler.CreateNewServer(bookHandler, true, tokenAuth)
-	s.MountRoutes()
+func setupServer(t *testing.T) (*handler.Server, *jwtauth.JWTAuth, *repository.Repositories) {
+    repos := inmemory.GetRepositories()
+    services := service.GetServices(repos)
+    tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
+    handlers := &handler.Handler{
+        UserHandler: handler.NewUserHandler(services.UserService, tokenAuth),
+        BookHandler: handler.NewBookHandler(services.BookService),
+    }
+    s := handler.CreateNewServer(handlers, services, true, tokenAuth)
+    s.MountRoutes()
+    return s, tokenAuth, repos
+}
+
+func Test_Register(t *testing.T) {
+	s, _, _ := setupServer(t)
 
 	type Test struct {
 		method             string
@@ -41,46 +54,59 @@ func Test_Get_Token(t *testing.T) {
 		expectedStatusCode int
 	}
 
-	test := []Test{
+	tests := []Test{
 		{
-			"GET",
-			"/api/v1/get-token",
-			nil,
-			BasicAuthHeader("admin", "admin123"),
-			http.StatusOK,
+			method:             "POST",
+			url:                "/api/v1/register",
+			body:               bytes.NewReader([]byte(`{"email":"test@example.com","password":"password123"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusCreated,
 		},
 		{
-			"GET",
-			"/api/v1/get-token",
-			nil,
-			BasicAuthHeader("wrong", "wrong123"),
-			http.StatusUnauthorized,
+			method:             "POST",
+			url:                "/api/v1/register",
+			body:               bytes.NewReader([]byte(`{"email":"invalid","password":""}`)),
+			token:              "",
+			expectedStatusCode: http.StatusBadRequest, // Changed from http.StatusBadRequest
 		},
 		{
-			"GET",
-			"/api/v1/get-token",
-			nil,
-			"",
-			http.StatusUnauthorized,
+			method:             "POST",
+			url:                "/api/v1/register",
+			body:               bytes.NewReader([]byte(`{"email":"test2@example.com","password":"short"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusBadRequest,
+		},
+		{
+			method:             "POST",
+			url:                "/api/v1/register",
+			body:               bytes.NewReader([]byte(`not a json`)),
+			token:              "",
+			expectedStatusCode: http.StatusBadRequest,
 		},
 	}
 
-	for _, i := range test {
-		req, _ := http.NewRequest(i.method, i.url, i.body)
-		if i.token != "" {
-			req.Header.Set("Authorization", i.token)
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
 		}
 		response := executeRequest(req, s)
-		checkResponseCode(t, i.expectedStatusCode, response.Code)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
 	}
 }
-func Test_AllBookList(t *testing.T) {
-	repo := inmemory.NewBookRepo()
-	svc := service.NewBookService(repo)
-	bookHandler := handler.NewBookHandler(svc)
-	tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-	s := handler.CreateNewServer(bookHandler, true, tokenAuth)
-	s.MountRoutes()
+
+func Test_Login(t *testing.T) {
+	s, _, repos := setupServer(t)
+
+	// Pre-create a user
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6", // Hashed "password123"
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
 
 	type Test struct {
 		method             string
@@ -90,48 +116,397 @@ func Test_AllBookList(t *testing.T) {
 		expectedStatusCode int
 	}
 
-	test := []Test{
+	tests := []Test{
 		{
-			"GET",
-			"/api/v1/books",
-			nil,
-			BasicAuthHeader("admin", "admin123"),
-			http.StatusOK,
+			method:             "POST",
+			url:                "/api/v1/login",
+			body:               bytes.NewReader([]byte(`{"email":"test@example.com","password":"password123"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusOK,
 		},
 		{
-			"GET",
-			"/api/v1/books",
-			nil,
-			BasicAuthHeader("wrong", "wrong123"),
-			http.StatusUnauthorized,
+			method:             "POST",
+			url:                "/api/v1/login",
+			body:               bytes.NewReader([]byte(`{"email":"test@example.com","password":"wrong"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 		{
-			"GET",
-			"/api/v1/books",
-			nil,
-			"",
-			http.StatusUnauthorized,
+			method:             "POST",
+			url:                "/api/v1/login",
+			body:               bytes.NewReader([]byte(`{"email":"nonexistent@example.com","password":"password123"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+		{
+			method:             "POST",
+			url:                "/api/v1/login",
+			body:               bytes.NewReader([]byte(`not a json`)),
+			token:              "",
+			expectedStatusCode: http.StatusBadRequest,
 		},
 	}
 
-	for _, i := range test {
-		req, _ := http.NewRequest(i.method, i.url, i.body)
-		if i.token != "" {
-			req.Header.Set("Authorization", i.token)
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
 		}
 		response := executeRequest(req, s)
-		checkResponseCode(t, i.expectedStatusCode, response.Code)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
+	}
+}
+
+func Test_Get_User(t *testing.T) {
+	s, tokenAuth, repos := setupServer(t)
+
+	// Pre-create a user
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
+
+	type Test struct {
+		method             string
+		url                string
+		body               io.Reader
+		token              string
+		expectedStatusCode int
+	}
+
+	tests := []Test{
+		{
+			method:             "GET",
+			url:                "/api/v1/users/1",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/users/999",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/users/invalid",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusBadRequest,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/users/1",
+			body:               nil,
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/users/1",
+			body:               nil,
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+	}
+
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
+		}
+		response := executeRequest(req, s)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
+	}
+}
+
+func Test_Get_Me(t *testing.T) {
+	s, tokenAuth, repos := setupServer(t)
+
+	// Pre-create a user
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
+
+	type Test struct {
+		method             string
+		url                string
+		body               io.Reader
+		token              string
+		expectedStatusCode int
+	}
+
+	tests := []Test{
+		{
+			method:             "GET",
+			url:                "/api/v1/users/me",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/users/me",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 999), // Non-existent user
+			expectedStatusCode: http.StatusNotFound,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/users/me",
+			body:               nil,
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/users/me",
+			body:               nil,
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+	}
+
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
+		}
+		response := executeRequest(req, s)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
+	}
+}
+
+func Test_Update_User(t *testing.T) {
+	s, tokenAuth, repos := setupServer(t)
+
+	// Pre-create a user
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
+
+	type Test struct {
+		method             string
+		url                string
+		body               io.Reader
+		token              string
+		expectedStatusCode int
+	}
+
+	tests := []Test{
+		{
+			method:             "PUT",
+			url:                "/api/v1/users/1",
+			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			method:             "PUT",
+			url:                "/api/v1/users/999",
+			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
+		},
+		{
+			method:             "PUT",
+			url:                "/api/v1/users/invalid",
+			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusBadRequest,
+		},
+		{
+			method:             "PUT",
+			url:                "/api/v1/users/1",
+			body:               bytes.NewReader([]byte(`{"email":"","password":"newpassword123"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusBadRequest,
+		},
+		{
+			method:             "PUT",
+			url:                "/api/v1/users/1",
+			body:               bytes.NewReader([]byte(`not a json`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusBadRequest,
+		},
+		{
+			method:             "PUT",
+			url:                "/api/v1/users/1",
+			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+		{
+			method:             "PUT",
+			url:                "/api/v1/users/1",
+			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+	}
+
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
+		}
+		response := executeRequest(req, s)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
+	}
+}
+
+func Test_Delete_User(t *testing.T) {
+	s, tokenAuth, repos := setupServer(t)
+
+	// Pre-create a user
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
+
+	type Test struct {
+		method             string
+		url                string
+		body               io.Reader
+		token              string
+		expectedStatusCode int
+	}
+
+	tests := []Test{
+		{
+			method:             "DELETE",
+			url:                "/api/v1/users/1",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNoContent,
+		},
+		{
+			method:             "DELETE",
+			url:                "/api/v1/users/999",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
+		},
+		{
+			method:             "DELETE",
+			url:                "/api/v1/users/invalid",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusBadRequest,
+		},
+		{
+			method:             "DELETE",
+			url:                "/api/v1/users/1",
+			body:               nil,
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+		{
+			method:             "DELETE",
+			url:                "/api/v1/users/1",
+			body:               nil,
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+	}
+
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
+		}
+		response := executeRequest(req, s)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
+	}
+}
+
+func Test_AllBookList(t *testing.T) {
+	s, tokenAuth, repos := setupServer(t)
+
+	// Pre-create a user for JWT
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
+
+	type Test struct {
+		method             string
+		url                string
+		body               io.Reader
+		token              string
+		expectedStatusCode int
+	}
+
+	tests := []Test{
+		{
+			method:             "GET",
+			url:                "/api/v1/books",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusOK,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/books",
+			body:               nil,
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+		{
+			method:             "GET",
+			url:                "/api/v1/books",
+			body:               nil,
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
+		},
+	}
+
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
+		}
+		response := executeRequest(req, s)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
 	}
 }
 
 func Test_Create_Book(t *testing.T) {
+	s, tokenAuth, repos := setupServer(t)
 
-	repo := inmemory.NewBookRepo()
-	svc := service.NewBookService(repo)
-	bookHandler := handler.NewBookHandler(svc)
-	tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-	s := handler.CreateNewServer(bookHandler, true, tokenAuth)
-	s.MountRoutes()
+	// Pre-create a user for JWT
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
 
 	type Test struct {
 		method             string
@@ -141,56 +516,61 @@ func Test_Create_Book(t *testing.T) {
 		expectedStatusCode int
 	}
 
-	test := []Test{
+	tests := []Test{
 		{
-			"POST",
-			"/api/v1/books",
-			bytes.NewReader([]byte(`{"name":"Learn API","authorList":["Urmi"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
-			GenerateJWTToken(tokenAuth),
-			http.StatusCreated,
+			method:             "POST",
+			url:                "/api/v1/books",
+			body:               bytes.NewReader([]byte(`{"name":"Learn API","authorList":["Urmi"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusCreated,
 		},
 		{
-			"POST",
-			"/api/v1/books",
-			bytes.NewReader([]byte(`{"name":"Learn API","authorList":"Urmi","publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
-			GenerateJWTToken(tokenAuth),
-			http.StatusBadRequest,
+			method:             "POST",
+			url:                "/api/v1/books",
+			body:               bytes.NewReader([]byte(`{"name":"Learn API","authorList":"Urmi","publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
-			"POST",
-			"/api/v1/books",
-			bytes.NewReader([]byte(`{"name":"Learn API","authorList":["Urmi"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
-			"Bearer invalid.token.here",
-			http.StatusUnauthorized,
+			method:             "POST",
+			url:                "/api/v1/books",
+			body:               bytes.NewReader([]byte(`{"name":"Learn API","authorList":["Urmi"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 		{
-			"POST",
-			"/api/v1/books",
-			bytes.NewReader([]byte(`{"name":"Learn API","authorList":["Urmi"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
-			"",
-			http.StatusUnauthorized,
+			method:             "POST",
+			url:                "/api/v1/books",
+			body:               bytes.NewReader([]byte(`{"name":"Learn API","authorList":["Urmi"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 	}
 
-	for _, i := range test {
-		req, _ := http.NewRequest(i.method, i.url, i.body)
-		if i.token != "" {
-			req.Header.Set("Authorization", i.token)
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
 		}
 		response := executeRequest(req, s)
-		checkResponseCode(t, i.expectedStatusCode, response.Code)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
 	}
 }
 
 func Test_Get_Book_With_id(t *testing.T) {
+	s, tokenAuth, repos := setupServer(t)
 
-	repo := inmemory.NewBookRepo()
-	svc := service.NewBookService(repo)
-	bookHandler := handler.NewBookHandler(svc)
-	tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-	s := handler.CreateNewServer(bookHandler, true, tokenAuth)
-	s.MountRoutes()
+	// Pre-create a user for JWT
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
 
+	// Pre-create a book
 	book := entity.Book{
 		UUID:        "123e4567-e89b-12d3-a456-426614174001",
 		Name:        "Learn API",
@@ -198,7 +578,7 @@ func Test_Get_Book_With_id(t *testing.T) {
 		PublishDate: "2022-01-02",
 		ISBN:        "0999-0555-5914",
 	}
-	repo.CreateBook(book)
+	repos.BookRepository.CreateBook(book)
 
 	type Test struct {
 		method             string
@@ -208,62 +588,68 @@ func Test_Get_Book_With_id(t *testing.T) {
 		expectedStatusCode int
 	}
 
-	test := []Test{
+	tests := []Test{
 		{
-			"GET",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			nil,
-			GenerateJWTToken(tokenAuth),
-			http.StatusOK,
+			method:             "GET",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusOK,
 		},
 		{
-			"GET",
-			"/api/v1/books/non-existent-uuid",
-			nil,
-			GenerateJWTToken(tokenAuth),
-			http.StatusNotFound,
+			method:             "GET",
+			url:                "/api/v1/books/non-existent-uuid",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
 		},
 		{
-			"GET",
-			"/api/v1/books/",
-			nil,
-			GenerateJWTToken(tokenAuth),
-			http.StatusNotFound,
+			method:             "GET",
+			url:                "/api/v1/books/",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
 		},
 		{
-			"GET",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			nil,
-			"Bearer invalid.token.here",
-			http.StatusUnauthorized,
+			method:             "GET",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               nil,
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 		{
-			"GET",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			nil,
-			"",
-			http.StatusUnauthorized,
+			method:             "GET",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               nil,
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 	}
 
-	for _, i := range test {
-		req, _ := http.NewRequest(i.method, i.url, i.body)
-		if i.token != "" {
-			req.Header.Set("Authorization", i.token)
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
 		}
 		response := executeRequest(req, s)
-		checkResponseCode(t, i.expectedStatusCode, response.Code)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
 	}
 }
 
 func Test_Update_Book(t *testing.T) {
-	repo := inmemory.NewBookRepo()
-	svc := service.NewBookService(repo)
-	bookHandler := handler.NewBookHandler(svc)
-	tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-	s := handler.CreateNewServer(bookHandler, true, tokenAuth)
-	s.MountRoutes()
+	s, tokenAuth, repos := setupServer(t)
 
+	// Pre-create a user for JWT
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
+
+	// Pre-create a book
 	book := entity.Book{
 		UUID:        "123e4567-e89b-12d3-a456-426614174001",
 		Name:        "Learn API",
@@ -271,7 +657,7 @@ func Test_Update_Book(t *testing.T) {
 		PublishDate: "2022-01-02",
 		ISBN:        "0999-0555-5914",
 	}
-	repo.CreateBook(book)
+	repos.BookRepository.CreateBook(book)
 
 	type Test struct {
 		method             string
@@ -281,69 +667,75 @@ func Test_Update_Book(t *testing.T) {
 		expectedStatusCode int
 	}
 
-	test := []Test{
+	tests := []Test{
 		{
-			"PUT",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			GenerateJWTToken(tokenAuth),
-			http.StatusOK,
+			method:             "PUT",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusOK,
 		},
 		{
-			"PUT",
-			"/api/v1/books/non-existent-uuid",
-			bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			GenerateJWTToken(tokenAuth),
-			http.StatusNotFound,
+			method:             "PUT",
+			url:                "/api/v1/books/non-existent-uuid",
+			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
 		},
 		{
-			"PUT",
-			"/api/v1/books/",
-			bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			GenerateJWTToken(tokenAuth),
-			http.StatusNotFound,
+			method:             "PUT",
+			url:                "/api/v1/books/",
+			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
 		},
 		{
-			"PUT",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			bytes.NewReader([]byte(`{"name":"Updated API","authorList":"Biswas","publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			GenerateJWTToken(tokenAuth),
-			http.StatusBadRequest,
+			method:             "PUT",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":"Biswas","publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
-			"PUT",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			"Bearer invalid.token.here",
-			http.StatusUnauthorized,
+			method:             "PUT",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 		{
-			"PUT",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			"",
-			http.StatusUnauthorized,
+			method:             "PUT",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 	}
 
-	for _, i := range test {
-		req, _ := http.NewRequest(i.method, i.url, i.body)
-		if i.token != "" {
-			req.Header.Set("Authorization", i.token)
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
 		}
 		response := executeRequest(req, s)
-		checkResponseCode(t, i.expectedStatusCode, response.Code)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
 	}
 }
 
 func Test_Delete_Book(t *testing.T) {
-	repo := inmemory.NewBookRepo()
-	svc := service.NewBookService(repo)
-	bookHandler := handler.NewBookHandler(svc)
-	tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-	s := handler.CreateNewServer(bookHandler, true, tokenAuth)
-	s.MountRoutes()
+	s, tokenAuth, repos := setupServer(t)
 
+	// Pre-create a user for JWT
+	user := entity.User{
+		ID:        1,
+		Email:     "test@example.com",
+		Password:  "$2a$10$bxCN.KcstTAU5I1zkZNe/OYrwD5gUc93lNl5pTit40/ZugB9YwuT6",
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	repos.UserRepository.CreateUser(user)
+
+	// Pre-create a book
 	book := entity.Book{
 		UUID:        "123e4567-e89b-12d3-a456-426614174001",
 		Name:        "Learn API",
@@ -351,7 +743,7 @@ func Test_Delete_Book(t *testing.T) {
 		PublishDate: "2022-01-02",
 		ISBN:        "0999-0555-5914",
 	}
-	repo.CreateBook(book)
+	repos.BookRepository.CreateBook(book)
 
 	type Test struct {
 		method             string
@@ -361,51 +753,51 @@ func Test_Delete_Book(t *testing.T) {
 		expectedStatusCode int
 	}
 
-	test := []Test{
+	tests := []Test{
 		{
-			"DELETE",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			nil,
-			GenerateJWTToken(tokenAuth),
-			http.StatusNoContent,
+			method:             "DELETE",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNoContent,
 		},
 		{
-			"DELETE",
-			"/api/v1/books/non-existent-uuid",
-			nil,
-			GenerateJWTToken(tokenAuth),
-			http.StatusNotFound,
+			method:             "DELETE",
+			url:                "/api/v1/books/non-existent-uuid",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
 		},
 		{
-			"DELETE",
-			"/api/v1/books/",
-			nil,
-			GenerateJWTToken(tokenAuth),
-			http.StatusNotFound,
+			method:             "DELETE",
+			url:                "/api/v1/books/",
+			body:               nil,
+			token:              GenerateJWTToken(tokenAuth, 1),
+			expectedStatusCode: http.StatusNotFound,
 		},
 		{
-			"DELETE",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			nil,
-			"Bearer invalid.token.here",
-			http.StatusUnauthorized,
+			method:             "DELETE",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               nil,
+			token:              "Bearer invalid.token.here",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 		{
-			"DELETE",
-			"/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
-			nil,
-			"",
-			http.StatusUnauthorized,
+			method:             "DELETE",
+			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
+			body:               nil,
+			token:              "",
+			expectedStatusCode: http.StatusUnauthorized,
 		},
 	}
 
-	for _, i := range test {
-		req, _ := http.NewRequest(i.method, i.url, i.body)
-		if i.token != "" {
-			req.Header.Set("Authorization", i.token)
+	for _, test := range tests {
+		req, _ := http.NewRequest(test.method, test.url, test.body)
+		if test.token != "" {
+			req.Header.Set("Authorization", test.token)
 		}
 		response := executeRequest(req, s)
-		checkResponseCode(t, i.expectedStatusCode, response.Code)
+		checkResponseCode(t, test.expectedStatusCode, response.Code)
 	}
 }
 
@@ -420,5 +812,3 @@ func checkResponseCode(t *testing.T, expected, actual int) {
 		t.Errorf("Expected response code %d. Got %d\n", expected, actual)
 	}
 }
-
-// go test -v ./test_file
