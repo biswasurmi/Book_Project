@@ -1,188 +1,233 @@
-
-
 ````markdown
-# 📚 Book Project
+# 📚 Book Project API
 
-A Go-based RESTful API for managing books, built with clean architecture principles and supporting CRUD operations with optional JWT and Basic Authentication.
-
----
-
-## 📖 Overview
-
-The Book Project is a robust, modular API developed in Go for managing a collection of books. It provides endpoints for creating, reading, updating, and deleting books, with a clean architecture that separates concerns into domain, application, and infrastructure layers.
-
-Authentication is optional, using **JWT** for protected endpoints and **Basic Authentication** for listing books and token generation. The `--auth=false` flag disables all authentication, making it ideal for development and testing.
+A robust Go-based RESTful API for managing books and users, built with Clean Architecture principles. Supports CRUD operations, JWT and Basic Authentication, unit testing, and Dockerized deployment.
 
 ---
 
-## ✨ Features
+## 🌟 Overview
 
-### 🔧 CRUD Operations
+The Book Project API is a secure, modular, and extensible Go API to manage books and user accounts. Built with Clean Architecture, it separates core logic into domain, service, and handler layers, and supports:
 
-- `GET /api/v1/books`: List all books.
-- `POST /api/v1/books`: Create a new book.
-- `GET /api/v1/books/{uuid}`: Retrieve a book by UUID.
-- `PUT /api/v1/books/{uuid}`: Update a book by UUID.
-- `DELETE /api/v1/books/{uuid}`: Delete a book by UUID.
-
-### 🔐 Authentication
-
-- Optional **JWT authentication** for `POST`, `GET /{uuid}`, `PUT`, and `DELETE` endpoints.
-- **Basic Authentication** for:
-  - `GET /api/v1/books`
-  - `GET /api/v1/get-token`
-- Disable authentication with `--auth=false`.
-
-### 🧠 Architecture
-
-- 🗂️ In-Memory Storage (easily extensible to databases)
-- 🧱 Clean Architecture (handlers, services, repos, domain separated)
-- 🖥️ CLI Support with Cobra
+- JWT authentication for protected routes
+- Basic Auth for token generation and book listing
+- Option to disable auth in development (`--auth=false`)
+- Cobra CLI for server management
+- Unit testing and Docker support
 
 ---
 
-## 🛠️ Prerequisites
+## ✨ Feature Summary
 
-- **Go**: Version 1.18 or higher ([Install Go](https://go.dev/doc/install))
-- **Git**: For cloning the repository ([Install Git](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git))
-- **curl**: For testing API endpoints (optional)
-
----
-
-## 🚀 Installation
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/biswasurmi/Book_Project.git
-cd Book_Project
-````
-
-### 2. Install Dependencies
-
-```bash
-go mod tidy
-```
-
-**Dependencies include:**
-
-* [`github.com/go-chi/chi/v5`](https://github.com/go-chi/chi)
-* [`github.com/go-chi/jwtauth/v5`](https://github.com/go-chi/jwtauth)
-* [`github.com/google/uuid`](https://github.com/google/uuid)
-* [`github.com/spf13/cobra`](https://github.com/spf13/cobra)
-
-### 3. Run the Server
-
-* **With authentication:**
-
-```bash
-go run main.go startProject --port=8080 --auth=true
-```
-
-* **Without authentication:**
-
-```bash
-go run main.go startProject --port=8080 --auth=false
-```
+| Resource | Method | Endpoint | Auth Required (`--auth=true`) | Auth-Free Mode (`--auth=false`) |
+|----------|--------|----------|-------------------------------|---------------------------------|
+| 📘 Books | GET    | `/api/v1/books`            | ✅ Basic Auth required           | ✅ No Auth                      |
+| 📘 Books | POST   | `/api/v1/books`            | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 📘 Books | GET    | `/api/v1/books/{uuid}`     | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 📘 Books | PUT    | `/api/v1/books/{uuid}`     | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 📘 Books | DELETE | `/api/v1/books/{uuid}`     | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 👤 Users | POST   | `/api/v1/register`         | ❌ Open to all                   | ❌ Open to all                  |
+| 👤 Users | POST   | `/api/v1/login`            | ❌ Open to all                   | ❌ Open to all                  |
+| 👤 Users | GET    | `/api/v1/users/{id}`       | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 👤 Users | GET    | `/api/v1/users/me`         | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 👤 Users | PUT    | `/api/v1/users/{id}`       | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 👤 Users | DELETE | `/api/v1/users/{id}`       | ✅ Bearer Token (JWT)            | ✅ No Auth                      |
+| 🔐 Auth  | GET    | `/api/v1/get-token`        | ✅ Basic Auth required           | ✅ No Auth                      |
 
 ---
 
-## 📡 API Usage
+## 🔐 Authentication Modes
 
-### 🔐 With Authentication (`--auth=true`)
+- **Auth Enabled (`--auth=true`)**
+  - `GET /books` and `GET /get-token`: Require Basic Auth (`urmi`).
+  - Other endpoints require a JWT token in `Authorization` header.
 
-#### 1. Get a JWT Token
+- **Auth Disabled (`--auth=false`)**
+  - All routes are open. You can test without any auth headers.
 
-```bash
-curl -u admin:admin123 http://localhost:8080/api/v1/get-token
-```
+---
 
-**Response:**
+## 🧠 Data Models
+
+### 📘 Book
 
 ```json
-{"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."}
+{
+  "uuid": "123e4567-e89b-12d3-a456-426614174001",
+  "name": "Learn API",
+  "authorList": ["author1", "author2"],
+  "publishDate": "2022-01-02",
+  "isbn": "0999-0555-5914"
+}
+````
+
+### 👤 User
+
+```json
+{
+  "firstName": "urmi",
+  "lastName": "admin",
+  "userName": "urmi",
+  "password": "password123"
+}
 ```
 
-#### 2. Create a Book
+---
+
+## 🚀 Usage Examples
+
+### ✅ Register User
+
+```bash
+curl -X POST http://localhost:8080/api/v1/register \
+-H "Content-Type: application/json" \
+-d '{"firstName":"urmi","lastName":"admin","userName":"urmi","password":"password123"}'
+```
+
+---
+
+### ✅ Login for JWT
+
+```bash
+curl -X POST http://localhost:8080/api/v1/login \
+-H "Content-Type: application/json" \
+-d '{"email":"urmi@example.com","password":"password123"}'
+```
+
+---
+
+### ✅ Get Token (Basic Auth)
+
+```bash
+curl -u urmi:password123 http://localhost:8080/api/v1/get-token
+```
+
+---
+
+### ✅ List Books (Basic Auth or Open)
+
+```bash
+curl -u urmi:password123 http://localhost:8080/api/v1/books
+```
+
+Or without auth if `--auth=false`:
+
+```bash
+curl http://localhost:8080/api/v1/books
+```
+
+---
+
+### ✅ Create Book
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/books \
 -H "Authorization: Bearer <your-jwt-token>" \
 -H "Content-Type: application/json" \
--d '{"name":"Test Book","authorList":["Author One"],"publishDate":"2023-01-01","isbn":"1234567890"}'
-```
-
-#### 3. List Books
-
-```bash
-curl -u admin:admin123 http://localhost:8080/api/v1/books
-```
-
-#### 4. Get a Book
-
-```bash
-curl -H "Authorization: Bearer <your-jwt-token>" \
-http://localhost:8080/api/v1/books/<uuid>
-```
-
-#### 5. Update a Book
-
-```bash
-curl -X PUT http://localhost:8080/api/v1/books/<uuid> \
--H "Authorization: Bearer <your-jwt-token>" \
--H "Content-Type: application/json" \
--d '{"name":"Updated Book","authorList":["Author Two"],"publishDate":"2024-01-01","isbn":"0987654321"}'
-```
-
-#### 6. Delete a Book
-
-```bash
-curl -X DELETE http://localhost:8080/api/v1/books/<uuid> \
--H "Authorization: Bearer <your-jwt-token>"
+-d '{"name":"Learn API","authorList":["author1","author2"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}'
 ```
 
 ---
 
-### 🔓 Without Authentication (`--auth=false`)
+## 🐳 Docker Setup
 
-#### 1. Get a Token
-
-```bash
-curl http://localhost:8080/api/v1/get-token
-```
-
-#### 2. Create a Book
+### 🧱 Build Image
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/books \
--H "Content-Type: application/json" \
--d '{"name":"Test Book","authorList":["Author One"],"publishDate":"2023-01-01","isbn":"1234567890"}'
+docker build -t book-project-api:latest .
 ```
 
-#### 3. List, Get, Update, Delete
+### 🚀 Run Container
 
-Use the same commands as above, but omit the `Authorization` header and replace `<uuid>` with a valid UUID.
+```bash
+docker run -p 8080:8080 book-project-api:latest
+```
+
+Without auth:
+
+```bash
+docker run -p 8080:8080 book-project-api:latest --auth=false
+```
 
 ---
 
-## 📂 Project Structure
+## 📁 Project Structure
 
 ```
 Book_Project/
 ├── api/
-│   ├── handler/         # HTTP handlers and routes
-│   ├── middleware/      # Authentication middleware (JWT, Basic Auth)
-├── cmd/                 # CLI commands using Cobra
+│   ├── handler/         # Route handlers
+│   ├── middleware/      # JWT & Basic auth
+├── cmd/                 # Cobra CLI commands
 ├── domain/
-│   ├── entity/          # Book entity definition
-│   ├── repository/      # Repository interfaces
+│   ├── entity/          # Book & User models
+│   ├── repository/      # Interfaces
 ├── infrastructure/
-│   ├── persistance/
-│   │   ├── inmemory/    # In-memory repository implementation
-├── service/             # Business logic for book operations
-├── main.go              # Application entry point
-├── go.mod               # Go module dependencies
-├── go.sum               # Dependency checksums
-├── LICENSE              # MIT License
-├── README.md            # Project documentation
+│   └── persistance/
+│       └── inmemory/    # In-memory repo
+├── service/             # Business logic
+├── test_file/           # Unit tests
+├── main.go              # Entry point
+├── Dockerfile           # Multi-stage Dockerfile
+├── go.mod / go.sum      # Go modules
+```
+
+---
+
+## 🧪 Run Tests
+
+```bash
+go test -v ./test_file
+```
+
+Covers:
+
+* 📘 Book endpoints
+* 👤 User endpoints
+* 🔐 Auth logic
+
+---
+
+## 🐳 Dockerfile
+
+```dockerfile
+# Build stage
+FROM golang:latest AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN go build -o main .
+
+# Runtime stage
+FROM debian:latest
+WORKDIR /app
+COPY --from=builder /app/main .
+EXPOSE 8080
+CMD ["./main", "--port=8080", "--auth=true"]
+```
+
+---
+
+## 📚 Resources
+
+* [Go JWT (jwtauth)](https://github.com/go-chi/jwtauth)
+* [Cobra CLI](https://github.com/spf13/cobra)
+* [Go HTTP Testing](https://go.dev/doc/tutorial/add-a-test)
+* [Learn REST APIs](https://developer.mozilla.org/en-US/docs/Web/HTTP)
+
+---
+
+## 🙌 Contributing
+
+1. Fork this repo
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit changes: `git commit -m "Add my feature"`
+4. Push: `git push origin feature/my-feature`
+5. Open a pull request
+
+---
+
+Built with ❤️ by **Urmi Biswas** – Happy coding! 🚀
+
 ```
