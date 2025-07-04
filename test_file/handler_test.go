@@ -812,3 +812,6 @@ func checkResponseCode(t *testing.T, expected, actual int) {
 		t.Errorf("Expected response code %d. Got %d\n", expected, actual)
 	}
 }
+
+
+//go test -v ./test_file
