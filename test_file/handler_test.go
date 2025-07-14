@@ -3,9 +3,11 @@ package test_file
 import (
 	"bytes"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -14,37 +16,57 @@ import (
 	"github.com/biswasurmi/book-cli/domain/repository"
 	"github.com/biswasurmi/book-cli/infrastructure/persistance/inmemory"
 	"github.com/biswasurmi/book-cli/service"
-	"github.com/go-chi/jwtauth/v5"
+	"github.com/golang-jwt/jwt"
+	"github.com/joho/godotenv"
 )
+
+// Load environment variables once during initialization
+func init() {
+	dir, _ := os.Getwd()
+	fmt.Println("Current working directory:", dir)
+	if err := godotenv.Load("/mnt/c/Users/Asus/Desktop/Book_Project/.env"); err != nil {
+		fmt.Println("Warning: Could not load .env file:", err)
+		os.Setenv("JWT_SECRET", "bolaJabeNah")
+	}
+}
 
 func BasicAuthHeader(email, password string) string {
 	auth := email + ":" + password
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-func GenerateJWTToken(tokenAuth *jwtauth.JWTAuth, userID int64) string {
-	_, tokenString, _ := tokenAuth.Encode(map[string]interface{}{
-		"user_id": userID,
-		"exp":     time.Now().Add(time.Hour * 24).Unix(),
-	})
+func GenerateJWTToken(userID int64) string {
+	secretKey := os.Getenv("JWT_SECRET")
+	if secretKey == "" {
+		secretKey = "bolaJabeNah" // Fallback for testing
+	}
+
+	token := jwt.New(jwt.SigningMethodHS256)
+	claims := token.Claims.(jwt.MapClaims)
+	claims["user_id"] = userID
+	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
+
+	tokenString, err := token.SignedString([]byte(secretKey))
+	if err != nil {
+		return "" // Avoid panic
+	}
 	return "Bearer " + tokenString
 }
 
-func setupServer(t *testing.T) (*handler.Server, *jwtauth.JWTAuth, *repository.Repositories) {
-    repos := inmemory.GetRepositories()
-    services := service.GetServices(repos)
-    tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-    handlers := &handler.Handler{
-        UserHandler: handler.NewUserHandler(services.UserService, tokenAuth),
-        BookHandler: handler.NewBookHandler(services.BookService),
-    }
-    s := handler.CreateNewServer(handlers, services, true, tokenAuth)
-    s.MountRoutes()
-    return s, tokenAuth, repos
+func setupServer(t *testing.T) (*handler.Server, *repository.Repositories) {
+	repos := inmemory.GetRepositories()
+	services := service.GetServices(repos)
+	handlers := &handler.Handler{
+		UserHandler: handler.NewUserHandler(services.UserService),
+		BookHandler: handler.NewBookHandler(services.BookService),
+	}
+	s := handler.CreateNewServer(handlers, services, true)
+	s.MountRoutes()
+	return s, repos
 }
 
 func Test_Register(t *testing.T) {
-	s, _, _ := setupServer(t)
+	s, _ := setupServer(t)
 
 	type Test struct {
 		method             string
@@ -67,7 +89,7 @@ func Test_Register(t *testing.T) {
 			url:                "/api/v1/register",
 			body:               bytes.NewReader([]byte(`{"email":"invalid","password":""}`)),
 			token:              "",
-			expectedStatusCode: http.StatusBadRequest, // Changed from http.StatusBadRequest
+			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
 			method:             "POST",
@@ -96,7 +118,7 @@ func Test_Register(t *testing.T) {
 }
 
 func Test_Login(t *testing.T) {
-	s, _, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user
 	user := entity.User{
@@ -158,7 +180,7 @@ func Test_Login(t *testing.T) {
 }
 
 func Test_Get_User(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user
 	user := entity.User{
@@ -183,21 +205,21 @@ func Test_Get_User(t *testing.T) {
 			method:             "GET",
 			url:                "/api/v1/users/1",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusOK,
 		},
 		{
 			method:             "GET",
 			url:                "/api/v1/users/999",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
 			method:             "GET",
 			url:                "/api/v1/users/invalid",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
@@ -227,7 +249,7 @@ func Test_Get_User(t *testing.T) {
 }
 
 func Test_Get_Me(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user
 	user := entity.User{
@@ -252,14 +274,14 @@ func Test_Get_Me(t *testing.T) {
 			method:             "GET",
 			url:                "/api/v1/users/me",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusOK,
 		},
 		{
 			method:             "GET",
 			url:                "/api/v1/users/me",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 999), // Non-existent user
+			token:              GenerateJWTToken(999), // Non-existent user
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
@@ -289,7 +311,7 @@ func Test_Get_Me(t *testing.T) {
 }
 
 func Test_Update_User(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user
 	user := entity.User{
@@ -314,35 +336,35 @@ func Test_Update_User(t *testing.T) {
 			method:             "PUT",
 			url:                "/api/v1/users/1",
 			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusOK,
 		},
 		{
 			method:             "PUT",
 			url:                "/api/v1/users/999",
 			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
 			method:             "PUT",
 			url:                "/api/v1/users/invalid",
 			body:               bytes.NewReader([]byte(`{"email":"updated@example.com","password":"newpassword123","username":"testuser"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
 			method:             "PUT",
 			url:                "/api/v1/users/1",
 			body:               bytes.NewReader([]byte(`{"email":"","password":"newpassword123"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
 			method:             "PUT",
 			url:                "/api/v1/users/1",
 			body:               bytes.NewReader([]byte(`not a json`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
@@ -372,7 +394,7 @@ func Test_Update_User(t *testing.T) {
 }
 
 func Test_Delete_User(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user
 	user := entity.User{
@@ -397,21 +419,21 @@ func Test_Delete_User(t *testing.T) {
 			method:             "DELETE",
 			url:                "/api/v1/users/1",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNoContent,
 		},
 		{
 			method:             "DELETE",
 			url:                "/api/v1/users/999",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
 			method:             "DELETE",
 			url:                "/api/v1/users/invalid",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
@@ -441,7 +463,7 @@ func Test_Delete_User(t *testing.T) {
 }
 
 func Test_AllBookList(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user for JWT
 	user := entity.User{
@@ -466,7 +488,7 @@ func Test_AllBookList(t *testing.T) {
 			method:             "GET",
 			url:                "/api/v1/books",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusOK,
 		},
 		{
@@ -496,7 +518,7 @@ func Test_AllBookList(t *testing.T) {
 }
 
 func Test_Create_Book(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user for JWT
 	user := entity.User{
@@ -521,14 +543,14 @@ func Test_Create_Book(t *testing.T) {
 			method:             "POST",
 			url:                "/api/v1/books",
 			body:               bytes.NewReader([]byte(`{"name":"Learn API","authorList":["Urmi"],"publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusCreated,
 		},
 		{
 			method:             "POST",
 			url:                "/api/v1/books",
 			body:               bytes.NewReader([]byte(`{"name":"Learn API","authorList":"Urmi","publishDate":"2022-01-02","isbn":"0999-0555-5914"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
@@ -558,7 +580,7 @@ func Test_Create_Book(t *testing.T) {
 }
 
 func Test_Get_Book_With_id(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user for JWT
 	user := entity.User{
@@ -593,21 +615,21 @@ func Test_Get_Book_With_id(t *testing.T) {
 			method:             "GET",
 			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusOK,
 		},
 		{
 			method:             "GET",
 			url:                "/api/v1/books/non-existent-uuid",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
 			method:             "GET",
 			url:                "/api/v1/books/",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
@@ -637,7 +659,7 @@ func Test_Get_Book_With_id(t *testing.T) {
 }
 
 func Test_Update_Book(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user for JWT
 	user := entity.User{
@@ -672,28 +694,28 @@ func Test_Update_Book(t *testing.T) {
 			method:             "PUT",
 			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
 			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusOK,
 		},
 		{
 			method:             "PUT",
 			url:                "/api/v1/books/non-existent-uuid",
 			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
 			method:             "PUT",
 			url:                "/api/v1/books/",
 			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":["Biswas"],"publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
 			method:             "PUT",
 			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
 			body:               bytes.NewReader([]byte(`{"name":"Updated API","authorList":"Biswas","publishDate":"2023-01-02","isbn":"0999-0555-5954"}`)),
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusBadRequest,
 		},
 		{
@@ -723,7 +745,7 @@ func Test_Update_Book(t *testing.T) {
 }
 
 func Test_Delete_Book(t *testing.T) {
-	s, tokenAuth, repos := setupServer(t)
+	s, repos := setupServer(t)
 
 	// Pre-create a user for JWT
 	user := entity.User{
@@ -758,21 +780,21 @@ func Test_Delete_Book(t *testing.T) {
 			method:             "DELETE",
 			url:                "/api/v1/books/123e4567-e89b-12d3-a456-426614174001",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNoContent,
 		},
 		{
 			method:             "DELETE",
 			url:                "/api/v1/books/non-existent-uuid",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
 			method:             "DELETE",
 			url:                "/api/v1/books/",
 			body:               nil,
-			token:              GenerateJWTToken(tokenAuth, 1),
+			token:              GenerateJWTToken(1),
 			expectedStatusCode: http.StatusNotFound,
 		},
 		{
@@ -814,4 +836,4 @@ func checkResponseCode(t *testing.T, expected, actual int) {
 }
 
 
-//go test -v ./test_file
+// go test -v ./test_file

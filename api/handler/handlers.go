@@ -10,6 +10,6 @@ type Handler struct {
 func GetHandlers(services *service.Services) *Handler {
 	return &Handler{
 		BookHandler: NewBookHandler(services.BookService),
-		UserHandler: NewUserHandler(services.UserService, nil), // tokenAuth will be passed in cmd
+		UserHandler: NewUserHandler(services.UserService), // Removed nil argument
 	}
 }

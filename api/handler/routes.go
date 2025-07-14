@@ -1,30 +1,28 @@
 package handler
 
 import (
-    "net/http"
-    "github.com/go-chi/chi/v5"
-    "github.com/go-chi/jwtauth/v5"
-    "github.com/biswasurmi/book-cli/api/middleware"
-    "github.com/biswasurmi/book-cli/service"
+	"net/http"
+
+	"github.com/biswasurmi/book-cli/api/middleware"
+	"github.com/biswasurmi/book-cli/service"
+	"github.com/go-chi/chi/v5"
 )
 
 type Server struct {
-    Router     *chi.Mux
-    Handler    *Handler 
-    Services   *service.Services
-    Auth       bool
-    TokenAuth  *jwtauth.JWTAuth
+	Router   *chi.Mux
+	Handler  *Handler
+	Services *service.Services
+	Auth     bool
 }
 
-func CreateNewServer(h *Handler, services *service.Services, auth bool, tokenAuth *jwtauth.JWTAuth) *Server {
-    r := chi.NewRouter()
-    return &Server{
-        Router:    r,
-        Handler:   h,
-        Services:  services,
-        Auth:      auth,
-        TokenAuth: tokenAuth,
-    }
+func CreateNewServer(h *Handler, services *service.Services, auth bool) *Server {
+	r := chi.NewRouter()
+	return &Server{
+		Router:   r,
+		Handler:  h,
+		Services: services,
+		Auth:     auth,
+	}
 }
 
 func (s *Server) MountRoutes() {
@@ -33,25 +31,23 @@ func (s *Server) MountRoutes() {
 		s.Handler.UserHandler.Login(w, r)
 	})
 
-
 	if s.Auth {
 		s.Router.Group(func(r chi.Router) {
 			r.Use(middleware.BasicAuth(&middleware.BasicAuthConfig{UserService: s.Services.UserService}))
 			r.Get("/api/v1/get-token", func(w http.ResponseWriter, r *http.Request) {
-				middleware.GetTokenHandler(w, r, s.TokenAuth, s.Auth, s.Services.UserService)
+				middleware.GetTokenHandler(w, r, s.Auth, s.Services.UserService)
 			})
 		})
 	} else {
 		s.Router.Get("/api/v1/get-token", func(w http.ResponseWriter, r *http.Request) {
-			middleware.GetTokenHandler(w, r, s.TokenAuth, s.Auth, s.Services.UserService)
+			middleware.GetTokenHandler(w, r, s.Auth, s.Services.UserService)
 		})
 	}
 
 	// Protected routes (JWT required when auth=true)
 	s.Router.Group(func(r chi.Router) {
 		if s.Auth {
-			r.Use(jwtauth.Verifier(s.TokenAuth))
-			r.Use(middleware.JWTAuth(s.TokenAuth))
+			r.Use(middleware.JWTAuth())
 		}
 		r.Get("/api/v1/books", s.Handler.BookHandler.ListBooks)
 		r.Post("/api/v1/books", s.Handler.BookHandler.CreateBook)

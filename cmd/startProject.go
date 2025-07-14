@@ -3,10 +3,10 @@ package cmd
 import (
 	"log"
 	"net/http"
+
 	"github.com/biswasurmi/book-cli/api/handler"
 	"github.com/biswasurmi/book-cli/infrastructure/persistance/inmemory"
 	"github.com/biswasurmi/book-cli/service"
-	"github.com/go-chi/jwtauth/v5"
 	"github.com/spf13/cobra"
 )
 
@@ -21,13 +21,12 @@ var startProject = &cobra.Command{
 
 		repos := inmemory.GetRepositories()
 		services := service.GetServices(repos)
-		tokenAuth := jwtauth.New("HS256", []byte("supersecretkey123"), nil)
-		h := &handler.Handler{ 
+		h := &handler.Handler{
 			BookHandler: handler.NewBookHandler(services.BookService),
-			UserHandler: handler.NewUserHandler(services.UserService, tokenAuth),
+			UserHandler: handler.NewUserHandler(services.UserService),
 		}
 
-		server := handler.CreateNewServer(h, services, auth, tokenAuth) 
+		server := handler.CreateNewServer(h, services, auth)
 		server.MountRoutes()
 
 		addr := ":" + port

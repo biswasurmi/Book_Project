@@ -3,26 +3,32 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
-	"time"
 	"strings"
+	"time"
 
 	"github.com/biswasurmi/book-cli/domain/entity"
 	"github.com/biswasurmi/book-cli/service"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/jwtauth/v5"
+	"github.com/golang-jwt/jwt"
+	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type UserHandler struct {
-	userService service.UserService
-	tokenAuth   *jwtauth.JWTAuth
+func init() {
+	if err := godotenv.Load(); err != nil {
+		// Log error but continue
+	}
 }
 
-func NewUserHandler(userService service.UserService, tokenAuth *jwtauth.JWTAuth) *UserHandler {
+type UserHandler struct {
+	userService service.UserService
+}
+
+func NewUserHandler(userService service.UserService) *UserHandler {
 	return &UserHandler{
 		userService: userService,
-		tokenAuth:   tokenAuth,
 	}
 }
 
@@ -34,7 +40,6 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Basic validation
 	if !strings.Contains(user.Email, "@") {
 		http.Error(w, "Invalid email format", http.StatusBadRequest)
 		return
@@ -44,7 +49,6 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Hash the password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
 		http.Error(w, "Failed to hash password", http.StatusInternalServerError)
@@ -70,30 +74,39 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	
 
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	
+
 	user, err := h.userService.Authenticate(creds.Email, creds.Password)
 	if err != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	
-	_, tokenString, err := h.tokenAuth.Encode(map[string]interface{}{
-		"user_id": user.ID,
-		"exp":     time.Now().Add(time.Hour * 24).Unix(),
-	})
+
+	secretKey := []byte(os.Getenv("JWT_SECRET"))
+	if len(secretKey) == 0 {
+		http.Error(w, "Server configuration error", http.StatusInternalServerError)
+		return
+	}
+
+	token := jwt.New(jwt.SigningMethodHS256)
+	claims := token.Claims.(jwt.MapClaims)
+	claims["user_id"] = user.ID
+	claims["exp"] = time.Now().Add(time.Hour * 24).Unix()
+
+	tokenString, err := token.SignedString(secretKey)
 	if err != nil {
 		http.Error(w, "Failed to generate token", http.StatusInternalServerError)
 		return
 	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
 }
+
 func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	userID := chi.URLParam(r, "id")
 	id, err := strconv.ParseInt(userID, 10, 64)
@@ -117,8 +130,9 @@ func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *UserHandler) GetMe(w http.ResponseWriter, r *http.Request) {
-	_, claims, err := jwtauth.FromContext(r.Context())
-	if err != nil {
+	
+	claims, ok := r.Context().Value("jwt_claims").(jwt.MapClaims)
+	if !ok {
 		http.Error(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -157,7 +171,6 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate user data
 	if user.Email == "" {
 		http.Error(w, "Email is required", http.StatusBadRequest)
 		return
@@ -217,5 +230,3 @@ func (h *UserHandler) Delete(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
-
-
