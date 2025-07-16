@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: book-project-deployment
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: book-project
+  template:
+    metadata:
+      labels:
+        app: book-project
+    spec:
+      containers:
+        - name: book-project
+          image: book-project:v3   
+          imagePullPolicy: IfNotPresent  
+          command: ["./main", "startProject"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                configMapKeyRef:
+                  name: book-project-config
+                  key: jwt-secret
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: book-project-config
+  namespace: default
+data:
+  jwt-secret: "bolaJabeNah"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: book-project-service
+  namespace: default
+spec:
+  selector:
+    app: book-project
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+      nodePort: 30080
+  type: NodePort 
