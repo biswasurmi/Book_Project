@@ -64,5 +64,5 @@ help:
 	@echo "  helm-repo-add    : Add/update Helm chart repository"
 	@echo "  helm-run         : Install/upgrade Helm chart"
 	@echo "  helm-port-forward: Port forward Helm deployed pod to localhost:8080"
-	@echo "  test             : Run Go tests inside Docker"
+	@echo "  test             : Run all written tests"
 	@echo "  clean            : Remove build artifacts and Docker image"
