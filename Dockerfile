@@ -18,4 +18,4 @@ COPY --from=builder /app/main .
 
 EXPOSE 8080
 
-CMD ["./main", "--port=8080", "--auth=true"]
+CMD ["./main", "startProject", "--port=8080", "--auth=true"]
